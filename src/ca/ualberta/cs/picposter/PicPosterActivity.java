@@ -1,15 +1,29 @@
 package ca.ualberta.cs.picposter;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
+import org.apache.http.HttpResponse;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.DefaultHttpClient;
+
 import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.util.Log;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.ListView;
+import ca.ualberta.cs.CMPUT301.chenlei.ElasticSearchResponse;
+import ca.ualberta.cs.CMPUT301.chenlei.Recipe;
 import ca.ualberta.cs.picposter.controller.PicPosterController;
+import ca.ualberta.cs.picposter.model.PicPostModel;
 import ca.ualberta.cs.picposter.model.PicPosterModelList;
 import ca.ualberta.cs.picposter.view.PicPostModelAdapter;
 
@@ -72,11 +86,69 @@ public class PicPosterActivity extends Activity {
 		this.currentPicture = null;
 	}
 
-
+	private String getEntityContent(HttpResponse response) throws IOException {
+		BufferedReader br = new BufferedReader(
+				new InputStreamReader((response.getEntity().getContent())));
+		String output;
+		System.err.println("Output from Server -> ");
+		String json = "";
+		while ((output = br.readLine()) != null) {
+			Log.w("ElasticSearch", "HLO " + output);
+			json += output;
+		}
+		Log.w("ElasticSearch", "HI JSON:"+json);
+		return json;
+	}
+	
 	public void searchPosts(View view) {
-		String searchTerm = this.searchPostsEditText.getText().toString();
 		
-		//TODO : perform search, update model, etc
+		final String searchTerm = this.searchPostsEditText.getText().toString();
+		
+		Thread thread = new Thread() //"(background) service" better than thread for mission critical ops
+		{
+			@Override
+			public void run()
+			{
+				HttpPost searchRequest = new HttpPost("http://cmput301.softwareprocess.es:8080/testing/lglin/_search?pretty=1");
+				String query = 	"{\"query\" : {\"query_string\" : {\"default_field\" : \"text\",\"query\" : \"*" + searchTerm + "*\"}}}";
+				StringEntity stringentity;
+				
+				try
+				{
+				stringentity = new StringEntity(query);
+				
+				searchRequest.setHeader("Accept","application/json");
+				searchRequest.setEntity(stringentity);
+				
+				Log.w("ElasticSearch", "HI " + searchRequest.getURI().toString());
+				
+				HttpClient httpclient = new DefaultHttpClient();
+				
+				HttpResponse response = httpclient.execute(searchRequest);
+				
+				String status = response.getStatusLine().toString();
+				
+				Log.w("ElasticSearch", status);
+				
+				String json = getEntityContent(response);
+				}
+				catch (Exception e)
+				{
+					Log.w("ElasticSearch", e.toString());
+					e.printStackTrace();
+				}			
+				
+				for (ElasticSearchResponse<PicPostModel> r : esResponse.getHits())
+				{
+					PicPostModel model = r.getSource();
+				}
+				
+				searchRequest.releaseConnection();
+			}
+		};
+		
+		thread.start();
+		
 		
 		this.searchPostsEditText.setText(null);
 		this.searchPostsEditText.setHint(R.string.search_posts_edit_text_hint);
